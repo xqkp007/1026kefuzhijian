@@ -1,0 +1,27 @@
+/* 列表容器 */
+.task-list-card {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.task-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* 任务名称列：让文本可省略且标签始终可见 */
+.task-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0; /* 允许子元素在flex中收缩 */
+}
+
+.task-name-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

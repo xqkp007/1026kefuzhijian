@@ -1,0 +1,143 @@
+Metadata-Version: 2.4
+Name: agent-eval-backend
+Version: 0.1.0
+Summary: Backend service for the agent stability evaluation tool
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi==0.110.1
+Requires-Dist: uvicorn[standard]==0.29.0
+Requires-Dist: pydantic-settings==2.2.1
+Requires-Dist: SQLAlchemy==2.0.29
+Requires-Dist: alembic==1.13.1
+Requires-Dist: psycopg2-binary==2.9.9
+Requires-Dist: celery==5.3.6
+Requires-Dist: redis==5.0.3
+Requires-Dist: httpx==0.27.0
+Requires-Dist: pandas<2.4,>=2.3.0
+Requires-Dist: openpyxl==3.1.2
+Requires-Dist: xlrd==2.0.1
+Requires-Dist: python-multipart==0.0.9
+Requires-Dist: python-dateutil==2.9.0.post0
+Requires-Dist: python-dotenv==1.0.1
+Requires-Dist: tenacity==8.2.3
+Provides-Extra: dev
+Requires-Dist: pytest==8.1.1; extra == "dev"
+Requires-Dist: pytest-asyncio==0.23.5; extra == "dev"
+Requires-Dist: pytest-cov==4.1.0; extra == "dev"
+Requires-Dist: ruff==0.3.5; extra == "dev"
+Requires-Dist: mypy==1.9.0; extra == "dev"
+Requires-Dist: factory-boy==3.3.0; extra == "dev"
+
+# Agent Evaluation Backend
+
+FastAPI + Celery 服务，实现智能体稳定性评测工具的后端逻辑。包含任务创建、队列执行、结果查看以及报告导出等能力。
+
+## 开发环境
+
+### 依赖
+
+- Python 3.11
+- PostgreSQL 15
+- Redis 7
+
+### 安装步骤
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
+### 配置
+
+复制 `.env.example` 到 `.env` 并按需修改。
+
+```bash
+cp .env.example .env
+```
+
+关键环境变量：
+
+| 变量 | 说明 | 默认值 |
+| --- | --- | --- |
+| `DATABASE_URL` | Postgres 连接串 | `postgresql+psycopg2://postgres:postgres@localhost:5432/agent_eval` |
+| `REDIS_URL` | Redis 地址，用于 Celery broker & backend | `redis://localhost:6379/0` |
+| `AGENT_API_ALLOWLIST` | 允许访问的智能体 API 域名（逗号分隔） | `*` |
+| `RUNS_PER_ITEM` | 每个问题重复调用次数 | `5` |
+| `TIMEOUT_SECONDS` | 调用智能体 API 超时时间（秒） | `30` |
+| `EVALUATION_CONCURRENCY` | Celery worker 并发度 | `1` |
+| `RATE_LIMIT_PER_AGENT` | 单智能体速率限制（Celery 速率表达式） | `1/s` |
+| `ZHIPU_API_KEY` | 智谱开放平台 API Key，必填 | `""` |
+| `ZHIPU_MODEL_ID` | 默认调用的模型 ID | `glm-4.6` |
+| `ZHIPU_THINKING_TYPE` | 是否开启深度思考模式 | `disabled` |
+| `ZHIPU_MAX_TOKENS` | 响应最大 tokens | `4096` |
+| `ZHIPU_TEMPERATURE` | 输出随机性（0-2） | `0.7` |
+| `ZHIPU_DIALOG_MODE` | 对话模式（单轮/多轮） | `single` |
+
+### 运行
+
+启动 API：
+
+```bash
+uvicorn app.main:app --reload
+```
+
+启动 Celery worker：
+
+```bash
+celery -A app.celery_app worker --loglevel=info
+```
+
+运行数据库迁移：
+
+```bash
+alembic upgrade head
+```
+
+运行测试：
+
+```bash
+pytest
+```
+
+### 智谱 SDK 示例
+
+1. 激活虚拟环境：`source .venv/bin/activate`
+2. 运行示例脚本：
+   ```bash
+   python app/examples/zhipu_chat_demo.py --prompt-var product_name=智谱AI开放平台
+   ```
+3. 如需自定义提示词，可将文本放入 `app/prompts/zhipu/` 并通过 `--prompt-path` 指定。多轮对话需将 `ZHIPU_DIALOG_MODE` 改为 `multi`，并提供历史消息 JSON。
+
+### 评测任务切换至智谱模型
+
+- 在创建评测任务时将 `agent_model` 设置为 `zhipu`（或 `zhipu-glm-4.6` 等以 `zhipu` 开头的值），前端会自动调用后端的智谱通道；`agent_api_url` 可置为 `zhipu://chat` 作为占位。
+- 确保 `.env` 中已配置 `ZHIPU_API_KEY` 及其他 `ZHIPU_*` 参数。
+- 运行过程中，后端会将完整的请求/响应打印到 `logs/celery.log`，便于排查返回结构。
+- 若需复用旧的智能体 API，将 `agent_model` 填写为非 `zhipu` 且提供有效的 `agent_api_url` 即可。
+
+## 项目结构
+
+```
+backend/
+├── app/
+│   ├── api/              # 路由定义
+│   ├── core/             # 配置、日志等核心模块
+│   ├── db/               # 数据库模型与会话
+│   ├── examples/         # SDK 调用示例脚本
+│   ├── schemas/          # Pydantic schema
+│   ├── services/         # 业务服务与 Celery 任务
+│   ├── utils/            # 工具库
+│   ├── prompts/          # 提示词资源（zhipu 等）
+│   └── main.py           # FastAPI 入口
+├── alembic/              # 数据库迁移脚本
+├── pyproject.toml
+└── README.md
+```
+
+## TODO
+
+- [x] 实现核心 API 与 Celery 调度
+- [x] 提供基础测试与导出能力
+- [ ] 补充监控指标与更多自动化测试

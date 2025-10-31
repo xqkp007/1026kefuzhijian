@@ -1,0 +1,14 @@
+/* 表单容器 */
+.create-task-card {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.ant-upload-drag-icon {
+  margin-bottom: 16px;
+}
+
+.ant-upload-drag-icon .anticon {
+  font-size: 48px;
+  color: #1890ff;
+}

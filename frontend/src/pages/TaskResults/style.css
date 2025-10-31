@@ -1,0 +1,82 @@
+/* 头部区域 */
+.results-header-card {
+  max-width: 1200px;
+  margin: 0 auto 16px auto;
+}
+
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.results-summary {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+/* 结果列表 */
+.results-list {
+  max-width: 1200px;
+  margin: 0 auto 16px auto;
+}
+
+.result-card {
+  margin-bottom: 16px;
+}
+
+.question-section {
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 16px;
+}
+
+.question-text {
+  display: block;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.answer-text {
+  display: block;
+  font-size: 14px;
+}
+
+.runs-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 12px;
+}
+
+.run-item {
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid #f0f0f0;
+}
+
+.run-header {
+  margin-bottom: 8px;
+}
+
+.run-content {
+  font-size: 14px;
+}
+
+.correction-hint {
+  display: block;
+  margin-top: 4px;
+}
+
+.verdict-hint {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #8c8c8c;
+}
+
+/* 分页区域 */
+.results-pagination-card {
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+}
