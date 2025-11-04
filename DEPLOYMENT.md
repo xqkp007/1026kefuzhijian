@@ -40,14 +40,64 @@ repo/
 —
 
 ## 4. 数据库与 Redis 准备
-1) PostgreSQL 创建数据库与用户（示例）：
+
+4.1 PostgreSQL（必需）
+- 版本：PostgreSQL 15（兼容 14/16，建议与公司标准一致）
+- 连接串环境变量：`.env` 的 `DATABASE_URL`
+  - 本地/内网示例：
+    - `postgresql+psycopg2://agent_user:StrongPassword123!@127.0.0.1:5432/agent_eval`
+  - 云 RDS/TLS（示例）：
+    - `postgresql+psycopg2://agent_user:StrongPassword123!@rds.example.com:5432/agent_eval?sslmode=require`
+
+创建数据库与用户（模板指令）：
 ```
 sudo -u postgres psql
+-- 数据库与独立用户
 CREATE DATABASE agent_eval;
 CREATE USER agent_user WITH PASSWORD 'StrongPassword123!';
 GRANT ALL PRIVILEGES ON DATABASE agent_eval TO agent_user;
+\c agent_eval
+GRANT ALL ON SCHEMA public TO agent_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO agent_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO agent_user;
 ```
-2) Redis 7 启动并确保可连接。
+
+4.2 Redis（必需）
+- 版本：Redis 7.x
+- 连接串环境变量：`.env` 的 `REDIS_URL`（例如 `redis://127.0.0.1:6379/0`）
+- 用途：Celery broker 与 backend
+
+4.3 迁移与验证（Alembic）
+- 初次/升级迁移：
+```
+cd backend
+source .venv/bin/activate
+alembic upgrade head
+```
+- 查看当前版本：`alembic current`
+- 查看历史：`alembic history --verbose`
+- 回滚一版（仅在必要时）：`alembic downgrade -1`
+
+4.4 云 RDS 注意事项
+- 开启白名单或安全组放行应用服务器 IP
+- 强制 TLS：在 `DATABASE_URL` 末尾加 `?sslmode=require`
+- 连接上限：根据并发适度提升 RDS `max_connections`（默认 100）或前置 PgBouncer
+
+4.5 备份与恢复（运维）
+- 逻辑备份（建议定时）：
+```
+pg_dump -Fc -h <host> -U <user> -d agent_eval > agent_eval_$(date +%F).dump
+```
+- 恢复（到新库）：
+```
+createdb -h <host> -U <user> agent_eval_restore
+pg_restore -h <host> -U <user> -d agent_eval_restore -c agent_eval_YYYY-MM-DD.dump
+```
+
+4.6 安全与最小权限
+- 不在仓库提交 `.env`，密钥线下传递；本仓库仅保留 `backend/.env.example`
+- 生产库独立账号、强口令、仅授权目标数据库/Schema
+- 如需只读报表账号，请单独创建并限制权限
 
 —
 
