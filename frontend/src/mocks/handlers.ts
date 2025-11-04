@@ -20,6 +20,9 @@ const mockTasks: EvaluationTask[] = [
     progress: { processed: 100, total: 100 },
     created_at: '2025-10-26T10:30:00Z',
     updated_at: '2025-10-26T10:45:00Z',
+    enable_correction: true,
+    completed_at: '2025-10-26T10:45:00Z',
+    duration_seconds: 900,
   },
   {
     task_id: 'task-002',
@@ -28,6 +31,9 @@ const mockTasks: EvaluationTask[] = [
     progress: { processed: 75, total: 150 },
     created_at: '2025-10-26T10:25:00Z',
     updated_at: '2025-10-26T10:40:00Z',
+    enable_correction: false,
+    completed_at: null,
+    duration_seconds: null,
   },
   {
     task_id: 'task-003',
@@ -36,6 +42,9 @@ const mockTasks: EvaluationTask[] = [
     progress: { processed: 25, total: 50 },
     created_at: '2025-10-26T10:20:00Z',
     updated_at: '2025-10-26T10:22:00Z',
+    enable_correction: true,
+    completed_at: '2025-10-26T10:22:00Z',
+    duration_seconds: 120,
   },
   {
     task_id: 'task-004',
@@ -44,6 +53,9 @@ const mockTasks: EvaluationTask[] = [
     progress: { processed: 0, total: 200 },
     created_at: '2025-10-26T10:15:00Z',
     updated_at: '2025-10-26T10:15:00Z',
+    enable_correction: false,
+    completed_at: null,
+    duration_seconds: null,
   },
 ];
 
@@ -167,6 +179,7 @@ export const handlers = [
     const response: CreateTaskResponse = {
       task_id: generateTaskId(),
       status: TaskStatus.PENDING,
+      enable_correction: false,
     };
 
     return HttpResponse.json(response, { status: 200 });
