@@ -1,0 +1,52 @@
+# Global ignores for this repo
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Python build/artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+*.egg-info/
+**/*.egg-info/
+
+# Virtual environments
+.venv/
+**/.venv/
+
+# Logs & temp
+*.log
+logs/
+backend/logs/
+
+# Backend uploads/storage
+backend/storage/uploads/
+
+# Local env files (keep .env.example tracked)
+backend/.env
+frontend/.env
+**/.env.local
+!backend/.env.example
+!frontend/.env.example
+
+# Frontend build & deps (also ignored by frontend/.gitignore)
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# Misc
+*.sqlite
+*.db
+*.tar
+*.gz
+*.zip
