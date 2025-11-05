@@ -73,6 +73,7 @@ export interface EvaluationItem {
   standard_answer: string;
   system_prompt: string | null;
   user_context: string | null;
+   session_group?: string | null;
   is_passed?: boolean | null;
   failure_type?: 'PASS' | 'PARTIAL_ERROR' | 'CORRECTION_FAILED' | 'UNDETERMINED';
   runs: EvaluationRun[];

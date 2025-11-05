@@ -58,6 +58,7 @@ def _build_headers(task: EvaluationTask, include_errors: bool) -> List[str]:
         "standard_answer",
         "_system_prompt",
         "_user_context",
+        "session_group",
         "is_passed",
     ]
     for idx in range(1, task.runs_per_item + 1):
@@ -103,6 +104,7 @@ def _build_row(
         item.standard_answer,
         item.system_prompt or "",
         item.user_context or "",
+        getattr(item, "session_group", "") or "",
         _bool_str(item.is_passed),
     ]
     for idx in range(1, task.runs_per_item + 1):

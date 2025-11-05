@@ -18,6 +18,7 @@ async def test_load_dataset_generates_question_ids():
     assert all(record["question_id"] for record in records)
     assert records[0]["question"] == "中国的首都是哪里？"
     assert records[1]["standard_answer"] == "申城"
+    assert all("session_group" in record for record in records)
 
 
 @pytest.mark.asyncio
@@ -30,3 +31,18 @@ async def test_load_dataset_missing_required_column():
 
     assert exc.value.status_code == 422
     assert exc.value.detail["code"] == "DATASET_SCHEMA_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_load_dataset_with_session_group_column():
+    csv_content = (
+        "question,standard_answer,session_group\n"
+        "你好,hi, grpA \n"
+        "请继续,please continue,\n"
+    )
+    upload = UploadFile(filename="multi.csv", file=io.BytesIO(csv_content.encode("utf-8")))
+
+    records, _ = await dataset_loader.load_dataset(upload)
+
+    assert records[0]["session_group"] == "grpA"
+    assert records[1]["session_group"] is None

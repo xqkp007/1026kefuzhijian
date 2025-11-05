@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card,
@@ -31,6 +31,31 @@ import './style.css';
 
 const { Title, Text, Paragraph } = Typography;
 
+type GroupedResult = {
+  key: string;
+  sessionGroup: string | null;
+  items: EvaluationItem[];
+};
+
+const VERDICT_MAP: Record<string, { color: string; text: string; hint: string }> = {
+  PASS: { color: 'green', text: '通过', hint: '5 次输出均被判定为正确' },
+  PARTIAL_ERROR: {
+    color: 'red',
+    text: '部分错误',
+    hint: '存在被矫正判定为错误的输出',
+  },
+  CORRECTION_FAILED: {
+    color: 'orange',
+    text: '矫正失败',
+    hint: '矫正调用失败或未执行，无法判定该题',
+  },
+  UNDETERMINED: {
+    color: 'default',
+    text: '未判定',
+    hint: '矫正未执行或尚未完成',
+  },
+};
+
 const TaskResults: React.FC = () => {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
@@ -44,6 +69,32 @@ const TaskResults: React.FC = () => {
   const [page, setPage] = useState(parseInt(searchParams.get('page') || '1'));
   const [error, setError] = useState<string>('');
   const [taskInfo, setTaskInfo] = useState<TaskDetails | null>(null);
+
+  const groupedItems = useMemo<GroupedResult[]>(() => {
+    const results: GroupedResult[] = [];
+    items.forEach((item, index) => {
+      const groupKey = item.session_group ?? null;
+      if (groupKey) {
+        const last = results[results.length - 1];
+        if (last && last.sessionGroup === groupKey) {
+          last.items.push(item);
+        } else {
+          results.push({
+            key: `group-${groupKey}-${results.length}`,
+            sessionGroup: groupKey,
+            items: [item],
+          });
+        }
+      } else {
+        results.push({
+          key: `single-${item.question_id}-${index}`,
+          sessionGroup: null,
+          items: [item],
+        });
+      }
+    });
+    return results;
+  }, [items]);
 
   // 获取结果
   const fetchResults = useCallback(
@@ -200,6 +251,55 @@ const TaskResults: React.FC = () => {
     );
   };
 
+  const renderQuestionCard = (
+    item: EvaluationItem,
+    questionIndex: number,
+    options?: { grouped?: boolean; roundIndex?: number; sessionGroup?: string | null }
+  ) => {
+    const failureType = item.failure_type ?? (item.is_passed === true ? 'PASS' : undefined);
+    const verdict = VERDICT_MAP[failureType ?? 'UNDETERMINED'];
+    const questionLabel = options?.grouped && options.roundIndex ? `第 ${options.roundIndex} 轮` : '问题';
+
+    const content = (
+      <>
+        <div className="question-section">
+          <Text strong className="question-text">
+            #{questionIndex} {questionLabel}: {item.question}
+          </Text>
+          <Text type="secondary" className="answer-text">
+            标准答案: {item.standard_answer}
+          </Text>
+          {taskInfo?.enable_correction && (
+            <Tag color={verdict.color} style={{ marginLeft: 8 }}>
+              {verdict.text}
+            </Tag>
+          )}
+          {taskInfo?.enable_correction && (
+            <div className="verdict-hint">{verdict.hint}</div>
+          )}
+        </div>
+
+        <div className="runs-section">
+          {item.runs.map((run, index) => renderRun(run, index))}
+        </div>
+      </>
+    );
+
+    if (options?.grouped) {
+      return (
+        <Card key={item.question_id} className="group-question-card" size="small" bordered={false}>
+          {content}
+        </Card>
+      );
+    }
+
+    return (
+      <Card key={item.question_id} className="result-card">
+        {content}
+      </Card>
+    );
+  };
+
   // 错误页面
   if (error) {
     return (
@@ -279,55 +379,41 @@ const TaskResults: React.FC = () => {
 
       {/* 结果列表 */}
       <div className="results-list">
-        {items.map((item, idx) => {
-          const questionIndex = (page - 1) * 20 + idx + 1;
-          const failureType = item.failure_type ?? (item.is_passed === true ? 'PASS' : undefined);
-          const verdictMap: Record<string, { color: string; text: string; hint: string }> = {
-            PASS: { color: 'green', text: '通过', hint: '5 次输出均被判定为正确' },
-            PARTIAL_ERROR: {
-              color: 'red',
-              text: '部分错误',
-              hint: '存在被矫正判定为错误的输出',
-            },
-            CORRECTION_FAILED: {
-              color: 'orange',
-              text: '矫正失败',
-              hint: '矫正调用失败或未执行，无法判定该题',
-            },
-            UNDETERMINED: {
-              color: 'default',
-              text: '未判定',
-              hint: '矫正未执行或尚未完成',
-            },
-          };
+        {(() => {
+          let questionIndex = (page - 1) * 20;
+          return groupedItems.map((group) => {
+            if (group.sessionGroup) {
+              const runsPerItem = taskInfo?.runs_per_item ?? group.items[0]?.runs.length ?? 0;
+              return (
+                <Card key={group.key} className="session-group-card">
+                  <div className="session-group-header">
+                    <Space size="small">
+                      <Tag color="blue">多轮对话</Tag>
+                      <Text strong>{group.sessionGroup}</Text>
+                    </Space>
+                    <Text type="secondary">
+                      {group.items.length} 轮 × {runsPerItem} 路径
+                    </Text>
+                  </div>
+                  <div className="session-group-items">
+                    {group.items.map((item, roundIdx) => {
+                      questionIndex += 1;
+                      return renderQuestionCard(item, questionIndex, {
+                        grouped: true,
+                        roundIndex: roundIdx + 1,
+                        sessionGroup: group.sessionGroup,
+                      });
+                    })}
+                  </div>
+                </Card>
+              );
+            }
 
-          const verdict = verdictMap[failureType ?? 'UNDETERMINED'];
-
-          return (
-            <Card key={item.question_id} className="result-card">
-              <div className="question-section">
-                <Text strong className="question-text">
-                  #{questionIndex} 问题: {item.question}
-                </Text>
-                <Text type="secondary" className="answer-text">
-                  标准答案: {item.standard_answer}
-                </Text>
-                {taskInfo?.enable_correction && (
-                  <Tag color={verdict.color} style={{ marginLeft: 8 }}>
-                    {verdict.text}
-                  </Tag>
-                )}
-                {taskInfo?.enable_correction && (
-                  <div className="verdict-hint">{verdict.hint}</div>
-                )}
-              </div>
-
-              <div className="runs-section">
-                {item.runs.map((run, index) => renderRun(run, index))}
-              </div>
-            </Card>
-          );
-        })}
+            const item = group.items[0];
+            questionIndex += 1;
+            return renderQuestionCard(item, questionIndex);
+          });
+        })()}
       </div>
 
       {/* 分页 */}

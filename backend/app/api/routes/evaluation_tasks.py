@@ -179,6 +179,7 @@ def get_task_results(
                 standard_answer=item.standard_answer,
                 system_prompt=item.system_prompt,
                 user_context=item.user_context,
+                session_group=getattr(item, "session_group", None),
                 is_passed=getattr(item, "is_passed", None),
                 failure_type=failure_type_map.get(item.question_id),
                 runs=run_models,

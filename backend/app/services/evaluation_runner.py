@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -23,12 +24,12 @@ from app.services.correction_service import (
 logger = logging.getLogger(__name__)
 
 
-def _prepare_payload(item: Any, task) -> Dict[str, Any]:
+def _prepare_payload(item: Any, task, *, session_id: str | None = None) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "doc_list": [],
         "image_url": "",
         "query": item.question,
-        "session_id": "",
+        "session_id": session_id or "",
         "stream": task.use_stream,
     }
 
@@ -137,8 +138,9 @@ def _perform_request(
     run,
     *,
     headers: Dict[str, str],
+    session_id: str | None = None,
 ) -> Tuple[str, str | None, str | None]:
-    payload = _prepare_payload(item, task)
+    payload = _prepare_payload(item, task, session_id=session_id)
     if "Content-Type" not in headers:
         headers["Content-Type"] = "application/json"
 
@@ -188,6 +190,8 @@ def _execute_single_run(
     task,
     item,
     run,
+    *,
+    session_id: str | None = None,
 ) -> Tuple[str, str | None, str | None, int]:
     attempts = 0
     max_attempts = settings.request_max_retries + 1
@@ -199,7 +203,12 @@ def _execute_single_run(
         started = time.perf_counter()
         try:
             content, error_code, error_message = _perform_request(
-                client, task, item, run, headers={**(task.agent_api_headers or {})}
+                client,
+                task,
+                item,
+                run,
+                headers={**(task.agent_api_headers or {})},
+                session_id=session_id,
             )
             latency_ms = int((time.perf_counter() - started) * 1000)
             if error_code or error_message:
@@ -224,6 +233,11 @@ def _execute_single_run(
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     return "", last_error_code, last_error_message, latency_ms
+
+
+def _build_group_session_id(task_id: str, session_group: str, run_index: int) -> str:
+    base = f"{task_id}:{session_group}:{run_index}"
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
 
 def _run_corrections_for_item(
@@ -284,6 +298,200 @@ def _run_corrections_for_item(
     repo.update_item_pass_status(db, item, all_correct)
 
 
+def _process_single_item(
+    db: Session,
+    *,
+    task,
+    item,
+    use_zhipu: bool,
+    zhipu_runner: ZhipuRunner | None,
+    client: httpx.Client | None,
+    correction_service: CorrectionService | None,
+) -> None:
+    runs = sorted(item.runs, key=lambda r: r.run_index)
+    pending_runs = [run for run in runs if run.status == RunStatus.RETRYING]
+    if not pending_runs:
+        logger.info(
+            "Task %s question %s already completed, skip re-processing",
+            task.id,
+            item.question_id,
+        )
+        return
+
+    for run in pending_runs:
+        logger.info(
+            "Task %s question %s run #%s started",
+            task.id,
+            item.question_id,
+            run.run_index,
+        )
+        if use_zhipu and zhipu_runner is not None:
+            content, error_code, error_message, latency_ms = zhipu_runner.execute(
+                task, item, run
+            )
+        else:
+            if client is None:
+                raise RuntimeError("HTTP client is not available for agent execution")
+            content, error_code, error_message, latency_ms = _execute_single_run(
+                client,
+                task,
+                item,
+                run,
+            )
+        if error_code:
+            status = RunStatus.TIMEOUT if error_code == "TIMEOUT" else RunStatus.FAILED
+        else:
+            status = RunStatus.SUCCEEDED
+        repo.update_run_result(
+            db,
+            run,
+            status=status,
+            response_body=content or None,
+            latency_ms=latency_ms,
+            error_code=error_code,
+            error_message=error_message,
+        )
+        logger.info(
+            "Task %s question %s run #%s finished status=%s latency=%sms error_code=%s",
+            task.id,
+            item.question_id,
+            run.run_index,
+            status,
+            latency_ms,
+            error_code or "",
+        )
+        db.commit()
+
+    if task.enable_correction:
+        _run_corrections_for_item(
+            db,
+            task=task,
+            item=item,
+            correction_service=correction_service,
+        )
+        db.commit()
+
+    repo.increment_task_progress(db, task)
+    db.commit()
+    logger.info(
+        "Task %s: question %s finished, progress=%s/%s",
+        task.id,
+        item.question_id,
+        task.progress_processed,
+        task.total_items,
+    )
+
+
+def _process_multi_turn_group(
+    db: Session,
+    *,
+    task,
+    group_key: str,
+    items: list,
+    client: httpx.Client | None,
+    use_zhipu: bool,
+    correction_service: CorrectionService | None,
+) -> None:
+    if use_zhipu:
+        raise RuntimeError("Multi-turn session groups require HTTP agent mode")
+    if client is None:
+        raise RuntimeError("HTTP client is not available for agent execution")
+
+    run_lookup = {item.id: {run.run_index: run for run in item.runs} for item in items}
+    pending_flags = {
+        item.id: any(run.status == RunStatus.RETRYING for run in run_lookup[item.id].values())
+        for item in items
+    }
+
+    if not any(pending_flags.values()):
+        logger.info(
+            "Task %s session_group %s already completed, skip re-processing",
+            task.id,
+            group_key,
+        )
+        return
+
+    for run_index in range(1, task.runs_per_item + 1):
+        if not any(
+            run_lookup[item.id].get(run_index) and run_lookup[item.id][run_index].status == RunStatus.RETRYING
+            for item in items
+        ):
+            continue
+
+        session_id = _build_group_session_id(task.id, group_key, run_index)
+        logger.info(
+            "Task %s session_group %s run #%s started",
+            task.id,
+            group_key,
+            run_index,
+        )
+        for item in items:
+            run = run_lookup[item.id].get(run_index)
+            if not run:
+                logger.warning(
+                    "Task %s session_group %s question %s missing run #%s",
+                    task.id,
+                    group_key,
+                    item.question_id,
+                    run_index,
+                )
+                continue
+
+            content, error_code, error_message, latency_ms = _execute_single_run(
+                client,
+                task,
+                item,
+                run,
+                session_id=session_id,
+            )
+            if error_code:
+                status = RunStatus.TIMEOUT if error_code == "TIMEOUT" else RunStatus.FAILED
+            else:
+                status = RunStatus.SUCCEEDED
+            repo.update_run_result(
+                db,
+                run,
+                status=status,
+                response_body=content or None,
+                latency_ms=latency_ms,
+                error_code=error_code,
+                error_message=error_message,
+            )
+            logger.info(
+                "Task %s session_group %s question %s run #%s finished status=%s latency=%sms error_code=%s",
+                task.id,
+                group_key,
+                item.question_id,
+                run_index,
+                status,
+                latency_ms,
+                error_code or "",
+            )
+            db.commit()
+
+    if task.enable_correction:
+        for item in items:
+            _run_corrections_for_item(
+                db,
+                task=task,
+                item=item,
+                correction_service=correction_service,
+            )
+            db.commit()
+
+    for item in items:
+        if pending_flags.get(item.id):
+            repo.increment_task_progress(db, task)
+            db.commit()
+            logger.info(
+                "Task %s: question %s finished, progress=%s/%s",
+                task.id,
+                item.question_id,
+                task.progress_processed,
+                task.total_items,
+            )
+
+
 def _process_task(db: Session, task_id: str) -> None:
     task = repo.try_claim_task(db, task_id)
     if not task:
@@ -321,7 +529,45 @@ def _process_task(db: Session, task_id: str) -> None:
     try:
         items = repo.list_items_for_task(db, task_id)
         total_items = len(items)
+        group_map: dict[str, list] = {}
+        for item in items:
+            if item.session_group:
+                group_map.setdefault(item.session_group, []).append(item)
+
+        processed_groups: set[str] = set()
         for item_index, item in enumerate(items, start=1):
+            if item.session_group:
+                group_key = item.session_group
+                if group_key in processed_groups:
+                    continue
+                logger.info(
+                    "Task %s: start session_group %s at item %s/%s",
+                    task.id,
+                    group_key,
+                    item_index,
+                    total_items,
+                )
+                group_items = group_map.get(group_key, [])
+                if not group_items:
+                    logger.warning(
+                        "Task %s session_group %s has no associated items, skip",
+                        task.id,
+                        group_key,
+                    )
+                    processed_groups.add(group_key)
+                    continue
+                _process_multi_turn_group(
+                    db,
+                    task=task,
+                    group_key=group_key,
+                    items=group_items,
+                    client=client,
+                    use_zhipu=use_zhipu,
+                    correction_service=correction_service,
+                )
+                processed_groups.add(group_key)
+                continue
+
             logger.info(
                 "Task %s: start question %s/%s (%s)",
                 task.id,
@@ -329,71 +575,14 @@ def _process_task(db: Session, task_id: str) -> None:
                 total_items,
                 item.question_id,
             )
-            runs = sorted(item.runs, key=lambda r: r.run_index)
-            pending_runs = [run for run in runs if run.status == RunStatus.RETRYING]
-            if not pending_runs:
-                logger.info(
-                    "Task %s question %s already completed, skip re-processing",
-                    task.id,
-                    item.question_id,
-                )
-                continue
-            for run in pending_runs:
-                logger.info(
-                    "Task %s question %s run #%s started",
-                    task.id,
-                    item.question_id,
-                    run.run_index,
-                )
-                if use_zhipu and zhipu_runner is not None:
-                    content, error_code, error_message, latency_ms = zhipu_runner.execute(
-                        task, item, run
-                    )
-                else:
-                    content, error_code, error_message, latency_ms = _execute_single_run(
-                        client, task, item, run
-                    )
-                if error_code:
-                    status = RunStatus.TIMEOUT if error_code == "TIMEOUT" else RunStatus.FAILED
-                else:
-                    status = RunStatus.SUCCEEDED
-                repo.update_run_result(
-                    db,
-                    run,
-                    status=status,
-                    response_body=content or None,
-                    latency_ms=latency_ms,
-                    error_code=error_code,
-                    error_message=error_message,
-                )
-                logger.info(
-                    "Task %s question %s run #%s finished status=%s latency=%sms error_code=%s",
-                    task.id,
-                    item.question_id,
-                    run.run_index,
-                    status,
-                    latency_ms,
-                    error_code or "",
-                )
-                db.commit()
-
-            if task.enable_correction:
-                _run_corrections_for_item(
-                    db,
-                    task=task,
-                    item=item,
-                    correction_service=correction_service,
-                )
-                db.commit()
-
-            repo.increment_task_progress(db, task)
-            db.commit()
-            logger.info(
-                "Task %s: question %s finished, progress=%s/%s",
-                task.id,
-                item.question_id,
-                task.progress_processed,
-                task.total_items,
+            _process_single_item(
+                db,
+                task=task,
+                item=item,
+                use_zhipu=use_zhipu,
+                zhipu_runner=zhipu_runner,
+                client=client,
+                correction_service=correction_service,
             )
 
         repo.mark_task_status(db, task, TaskStatus.SUCCEEDED)

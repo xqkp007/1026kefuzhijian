@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
 
@@ -92,6 +94,7 @@ class EvaluationItem(Base):
     standard_answer: Mapped[str] = Column(Text, nullable=False)
     system_prompt: Mapped[str | None] = Column(Text, nullable=True)
     user_context: Mapped[str | None] = Column(Text, nullable=True)
+    session_group: Mapped[str | None] = Column(String(128), nullable=True)
     is_passed: Mapped[bool | None] = Column(Boolean, nullable=True)
 
     created_at: Mapped[datetime] = Column(

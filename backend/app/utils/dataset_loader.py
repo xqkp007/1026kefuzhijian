@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import io
 import os
 import uuid
@@ -11,7 +13,7 @@ from app.core.config import settings
 
 
 REQUIRED_COLUMNS = {"question", "standard_answer"}
-OPTIONAL_COLUMNS = {"question_id", "system_prompt", "user_context"}
+OPTIONAL_COLUMNS = {"question_id", "system_prompt", "user_context", "session_group"}
 SUPPORTED_EXTENSIONS = {".csv", ".xls", ".xlsx"}
 
 
@@ -136,6 +138,12 @@ def dataset_to_records(df: pd.DataFrame) -> List[dict]:
     for record in records:
         record.setdefault("system_prompt", None)
         record.setdefault("user_context", None)
+        raw_group = record.get("session_group")
+        if raw_group is None:
+            record["session_group"] = None
+        else:
+            normalized = str(raw_group).strip()
+            record["session_group"] = normalized or None
     return records
 
 

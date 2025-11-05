@@ -25,6 +25,25 @@
   margin-bottom: 16px;
 }
 
+.session-group-card {
+  margin-bottom: 24px;
+  border-left: 4px solid #1890ff;
+  background: #f8fbff;
+}
+
+.session-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.session-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .question-section {
   padding-bottom: 16px;
   border-bottom: 1px solid #f0f0f0;
@@ -46,6 +65,20 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 12px;
+}
+
+.group-question-card {
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #e6f4ff;
+}
+
+.group-question-card .question-section {
+  border-bottom: 1px solid #e6f4ff;
+}
+
+.group-question-card .runs-section {
+  margin-top: 12px;
 }
 
 .run-item {

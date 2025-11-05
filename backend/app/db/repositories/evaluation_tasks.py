@@ -91,6 +91,7 @@ def bulk_insert_items(
             standard_answer=item["standard_answer"],
             system_prompt=item.get("system_prompt"),
             user_context=item.get("user_context"),
+            session_group=item.get("session_group"),
             created_at=created_at,
         )
         db.add(evaluation_item)
@@ -172,6 +173,11 @@ def update_run_result(
     run.latency_ms = latency_ms
     run.error_code = error_code
     run.error_message = error_message
+    run.correction_status = "PENDING"
+    run.correction_result = None
+    run.correction_reason = None
+    run.correction_error_message = None
+    run.correction_retries = 0
     run.updated_at = now
     db.add(run)
 

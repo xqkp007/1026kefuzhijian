@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
@@ -78,6 +80,7 @@ class EvaluationItemSchema(BaseModel):
     standard_answer: str
     system_prompt: Optional[str]
     user_context: Optional[str]
+    session_group: Optional[str] = None
     is_passed: Optional[bool] = None
     failure_type: Optional[str] = None
     runs: List[EvaluationRunSchema]
